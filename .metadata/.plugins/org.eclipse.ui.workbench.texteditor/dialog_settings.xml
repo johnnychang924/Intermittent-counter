@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<section name="Workbench">
+	<section name="org.eclipse.ui.texteditor.FindReplaceDialog">
+		<item key="selection" value="print_temp"/>
+		<item key="wrap" value="true"/>
+		<item key="casesensitive" value="false"/>
+		<item key="wholeword" value="false"/>
+		<item key="incremental" value="false"/>
+		<item key="isRegEx" value="false"/>
+		<list key="findhistory">
+			<item value="print_temp"/>
+			<item value="RTC_VECTOR"/>
+			<item value="PM5CTL0"/>
+			<item value="LPM0_bits"/>
+			<item value="__bis_SR_register"/>
+			<item value="TA0CCR0"/>
+			<item value="TASSEL__ACLK"/>
+			<item value="CCIE"/>
+			<item value="TA0CCTL0"/>
+			<item value="ADCENC"/>
+			<item value="FR4133"/>
+			<item value="pos1"/>
+			<item value="E"/>
+			<item value="long"/>
+		</list>
+		<list key="replacehistory">
+		</list>
+	</section>
+	<section name="org.eclipse.ui.texteditor.FindReplaceDialog_dialogBounds">
+		<item key="DIALOG_X_ORIGIN" value="1341"/>
+		<item key="DIALOG_Y_ORIGIN" value="177"/>
+		<item key="DIALOG_WIDTH" value="322"/>
+		<item key="DIALOG_HEIGHT" value="391"/>
+		<item key="DIALOG_FONT_NAME" value="1|Microsoft JhengHei UI|9.0|0|WINDOWS|1|-12|0|0|0|400|0|0|0|1|0|0|5|0|Microsoft JhengHei UI"/>
+	</section>
+</section>

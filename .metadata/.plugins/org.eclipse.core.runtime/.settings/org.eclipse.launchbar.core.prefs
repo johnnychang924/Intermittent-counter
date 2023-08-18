@@ -1,0 +1,14 @@
+LaunchTargetManager/org.eclipse.launchbar.core.launchTargetType.local,Local/arch=x86_64
+LaunchTargetManager/org.eclipse.launchbar.core.launchTargetType.local,Local/name=Local
+LaunchTargetManager/org.eclipse.launchbar.core.launchTargetType.local,Local/os=win32
+configDescList=org.eclipse.launchbar.core.descriptorType.default\:debug,org.eclipse.launchbar.core.descriptorType.default\:fram_try,org.eclipse.launchbar.core.descriptorType.default\:msp430fr413x_LCDE_01.c,org.eclipse.launchbar.core.descriptorType.default\:msp430fr413x_LCDE_02.c,org.eclipse.launchbar.core.descriptorType.default\:msp430fr413x_LCDE_03.c,org.eclipse.launchbar.core.descriptorType.default\:msp430fr413x_LCDE_04.c,org.eclipse.launchbar.core.descriptorType.default\:msp430fr413x_framwrite.c,org.eclipse.launchbar.core.descriptorType.default\:ultra_safe_counter,org.eclipse.launchbar.core.descriptorType.default\:msp430fr413x_adc10_16.c,org.eclipse.launchbar.core.descriptorType.default\:NVM_thermometer
+eclipse.preferences.version=1
+org.eclipse.launchbar.core.descriptorType.default\:NVM_thermometer/activeLaunchMode=debug
+org.eclipse.launchbar.core.descriptorType.default\:NVM_thermometer/activeLaunchTarget=org.eclipse.launchbar.core.launchTargetType.local\:Local
+org.eclipse.launchbar.core.descriptorType.default\:debug/activeLaunchMode=debug
+org.eclipse.launchbar.core.descriptorType.default\:debug/activeLaunchTarget=org.eclipse.launchbar.core.launchTargetType.local\:Local
+org.eclipse.launchbar.core.descriptorType.default\:fram_try/activeLaunchMode=debug
+org.eclipse.launchbar.core.descriptorType.default\:fram_try/activeLaunchTarget=org.eclipse.launchbar.core.launchTargetType.local\:Local
+org.eclipse.launchbar.core.descriptorType.default\:msp430fr413x_LCDE_01.c/activeLaunchMode=run
+org.eclipse.launchbar.core.descriptorType.default\:msp430fr413x_adc10_16.c/activeLaunchMode=debug
+org.eclipse.launchbar.core.descriptorType.default\:ultra_safe_counter/activeLaunchMode=debug

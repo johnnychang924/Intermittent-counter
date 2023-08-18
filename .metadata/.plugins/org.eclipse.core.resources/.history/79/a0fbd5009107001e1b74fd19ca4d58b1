@@ -1,0 +1,132 @@
+#include <msp430.h>
+
+#define CALADC_15V_30C  *((unsigned int *)0x1A1A)                 // Temperature Sensor Calibration-30 C
+                                                                  // See device datasheet for TLV table memory mapping
+#define CALADC_15V_85C  *((unsigned int *)0x1A1C)                 // Temperature Sensor Calibration-85 C
+
+float temp;
+float IntDegF;
+float IntDegC;
+
+void print_screen(unsigned long);
+void Init_LCD();
+void Init_GPIO(void);
+
+const unsigned int position[6] = {4, 6, 8, 10, 2, 18};
+
+const char digit[10] =
+{
+    0xFC,                                                      // "0"
+    0x60,                                                      // "1"
+    0xDB,                                                      // "2"
+    0xF3,                                                      // "3"
+    0x67,                                                      // "4"
+    0xB7,                                                      // "5"
+    0xBF,                                                      // "6"
+    0xE4,                                                      // "7"
+    0xFF,                                                      // "8"
+    0xF7                                                       // "9"
+};
+
+void setup()
+{
+  // put your setup code here, to run once:
+   //Serial.begin(9600) ;
+   //Serial.println(12);
+   //   WDTCTL = WDTPW | WDTHOLD;                                     // Stop WDT
+
+    PM5CTL0 &= ~LOCKLPM5;                                         // Disable high-impedance mode
+
+    TA0CCTL0 |= CCIE;                                             // TACCR0 interrupt enabled
+    TA0CCR0 = 65535;
+    TA0CTL = TASSEL__ACLK | MC__UP;                               // ACLK, UP mode
+
+    // Configure ADC - Pulse sample mode; ADCSC trigger
+    ADCCTL0 |= ADCSHT_8 | ADCON;                                  // ADC ON,temperature sample period>30us
+    ADCCTL1 |= ADCSHP;                                            // s/w trig, single ch/conv, MODOSC
+    ADCCTL2 |= ADCRES;                                            // 10-bit conversion results
+    ADCMCTL0 |= ADCSREF_1 | ADCINCH_12;                           // ADC input ch A12 => temp sense
+    ADCIE |=ADCIE0;                                               // Enable the Interrupt request for a completed ADC_B conversion
+
+    // Configure reference
+    PMMCTL0_H = PMMPW_H;                                          // Unlock the PMM registers
+    PMMCTL2 |= INTREFEN | TSENSOREN;                              // Enable internal reference and temperature sensor
+
+    __delay_cycles(400);                                          // Delay for reference settling
+
+  //  __bis_SR_register(LPM0_bits | GIE);                           // LPM3 with interrupts enabled
+ //   __no_operation();                                             // Only for debugger
+}
+
+void main()
+{
+  //Serial.println(IntDegC);
+  //delay(500);
+    setup();
+    Init_LCD();
+    Init_GPIO();
+    while(True);
+}
+
+void Init_LCD(){
+    SYSCFG2 |= LCDPCTL;                                        // R13/R23/R33/LCDCAP0/LCDCAP1 pins selected
+    LCDPCTL0 = 0xFFFF;
+    LCDPCTL1 = 0x07FF;
+    LCDPCTL2 = 0x00F0;                                         // L0~L26 & L36~L39 pins selected
+
+    LCDCTL0 = LCDSSEL_0 | LCDDIV_7;                            // flcd ref freq is xtclk
+
+    // LCD Operation - Mode 3, internal 3.08v, charge pump 256Hz
+    LCDVCTL = LCDCPEN | LCDREFEN | VLCD_6 | (LCDCPFSEL0 | LCDCPFSEL1 | LCDCPFSEL2 | LCDCPFSEL3);
+
+    LCDMEMCTL |= LCDCLRM;                                      // Clear LCD memory
+
+    LCDCSSEL0 = 0x000F;                                        // Configure COMs and SEGs
+    LCDCSSEL1 = 0x0000;                                        // L0, L1, L2, L3: COM pins
+    LCDCSSEL2 = 0x0000;
+
+    LCDM0 = 0x21;                                              // L0 = COM0, L1 = COM1
+    LCDM1 = 0x84;
+    // Display "123456"
+    LCDCTL0 |= LCD4MUX | LCDON;
+}
+
+void Init_GPIO()
+{
+    // Configure all GPIO to Output Low
+    P1OUT = 0x00;P2OUT = 0x00;P3OUT = 0x00;P4OUT = 0x00;
+    P5OUT = 0x00;P6OUT = 0x00;P7OUT = 0x00;P8OUT = 0x00;
+
+    P1DIR = 0xFF;P2DIR = 0xFF;P3DIR = 0xFF;P4DIR = 0xFF;
+    P5DIR = 0xFF;P6DIR = 0xFF;P7DIR = 0xFF;P8DIR = 0xFF;
+}
+
+void print_screen(unsigned long num){
+    unsigned int i = 0;
+    for(i = 6; i ; i--){
+        LCDMEM[position[i - 1]] = digit[num % 10];
+        num = num / 10;
+    }
+}
+
+// ADC interrupt service routine
+#pragma vector=ADC_VECTOR
+__interrupt void ADC_ISR(void)
+{
+     //  __delay_cycles(400);
+            temp = ADCMEM0;
+            // Temperature in Celsius
+            IntDegC = (temp-CALADC_15V_30C)*(85-30)/(CALADC_15V_85C-CALADC_15V_30C)+30;
+
+            // Temperature in Fahrenheit
+            IntDegF = 9*IntDegC/5+32;
+
+}
+
+// Timer A0 interrupt service routine
+
+#pragma vector=TIMER0_A0_VECTOR
+__interrupt void Timer_A (void)
+{
+    ADCCTL0 |= ADCENC | ADCSC;                                    // Sampling and conversion start
+}

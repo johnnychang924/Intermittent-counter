@@ -1,0 +1,325 @@
+#include <msp430.h>
+#include <stdio.h>
+
+#define CALADC_15V_30C  *((unsigned int *)0x1A1A)                 // Temperature Sensor Calibration-30 C
+                                                                  // See device datasheet for TLV table memory mapping
+#define CALADC_15V_85C  *((unsigned int *)0x1A1C)                 // Temperature Sensor Calibration-85 C
+
+float temp;
+float IntDegF;
+float IntDegC;
+
+unsigned long long encode(float);
+float decode(unsigned long long);
+void print_temp(float);
+void Init_LCD(void);
+void Init_GPIO(void);
+void setTimer(void);
+void write(float);
+float read_avg(void);
+void make_checkpoint(void);
+int rollback(void);
+
+const unsigned int position[6] = {4, 6, 8, 10, 2, 18};
+
+const char digit[10] =
+{
+    0xFC,                                                      // "0"
+    0x60,                                                      // "1"
+    0xDB,                                                      // "2"
+    0xF3,                                                      // "3"
+    0x67,                                                      // "4"
+    0xB7,                                                      // "5"
+    0xBF,                                                      // "6"
+    0xE4,                                                      // "7"
+    0xFF,                                                      // "8"
+    0xF7                                                       // "9"
+};
+
+#define FRAM_CHECKPOINT_REGION 0x1800
+#define FRAM_DATA_REGION 0x1802
+short bit_array[4] = { 0 };
+short cur_time_stamp = 0;
+unsigned int valid_data_start = 0; //include
+unsigned int valid_data_end = 0; //exclude
+int cur_checkpoint = 0;
+
+
+void main()
+{
+    WDTCTL = WDTPW | WDTHOLD;                                     // Stop WDT
+    P4SEL0 |= BIT1 | BIT2;                              // P4.2~P4.1: crystal pins
+    Init_GPIO();
+    P4SEL0 |= BIT1 | BIT2;                              // P4.2~P4.1: crystal pins
+    do
+    {
+        CSCTL7 &= ~(XT1OFFG | DCOFFG);                  // Clear XT1 and DCO fault flag
+        SFRIFG1 &= ~OFIFG;
+    }while (SFRIFG1 & OFIFG);                           // Test oscillator fault flag
+    CSCTL6 = (CSCTL6 & ~(XT1DRIVE_3)) | XT1DRIVE_2;     // Higher drive strength and current consumption for XT1 oscillator
+    PM5CTL0 &= ~LOCKLPM5;
+    setTimer();
+    Init_LCD();
+    __bis_SR_register(LPM0_bits | GIE);                           // LPM3 with interrupts enabled
+}
+
+void print_temp(float num){
+    if(num < 0){
+        num *= -1;
+        LCDMEM[position[0]] = 0x03;
+    }
+    int integer_part = (int)num % 100;
+    int float_part = (int)(num * 100) % 100;
+    LCDMEM[9] = 0x01;
+    LCDMEM[3] = 0x04;
+    LCDMEM[position[5]] = 0x9C;
+    LCDMEM[position[4]] = digit[float_part % 10];
+    float_part /= 10;
+    LCDMEM[position[3]] = digit[float_part];
+    LCDMEM[position[2]] = digit[integer_part % 10];
+    integer_part /= 10;
+    LCDMEM[position[1]] = digit[integer_part];
+}
+
+void write(float num){
+    /*unsigned long long datablock = encode(num);
+    byte *sub_datablock = (byte*)&datablock;
+    int i = 0;
+    SYSCFG0 &= ~DFWP;
+    byte *ptr = (byte *)FRAM_DATA_REGION;
+    ptr += (valid_data_end & 0b11) * 5;
+    for(int i = 5; i; i--){
+        *(ptr++) = *(sub_datablock++);
+    }
+    SYSCFG0 |= DFWP;
+    if(valid_data_end - valid_data_start >= 3){
+        valid_data_start++;
+    }
+    valid_data_end++;
+    make_checkpoint();*/
+    SYSCFG0 &= ~DFWP;
+    float *ptr = (float*)FRAM_DATA_REGION;
+    ptr += (valid_data_end & 0b11);
+    *ptr = num;
+    SYSCFG0 |= DFWP;
+    if(valid_data_end - valid_data_start >= 3){
+        valid_data_start++;
+    }
+    valid_data_end++;
+    make_checkpoint();
+}
+
+float read_avg(){
+    int i = valid_data_start;
+    float sum = 0;
+    int val_num = 0;
+    float *ptr = (float*)FRAM_DATA_REGION;
+    while((i ^ valid_data_end) & 0b11){
+        sum += *(ptr + (i & 0b11));
+        val_num++;
+        i++;
+    }
+    sum = sum / val_num;
+    return sum;
+}
+
+void make_checkpoint(){
+    cur_checkpoint ^= 1;
+    SYSCFG0 &= ~DFWP;
+    char *ptr = (char*)FRAM_CHECKPOINT_REGION;
+    ptr += cur_checkpoint;
+    unsigned char checkpoint = ((valid_data_start & 0b11) << 2) | ((valid_data_end & 0b11) << 4) | (cur_time_stamp & 0b11) | (cur_time_stamp << 6);
+    *ptr = checkpoint;
+    SYSCFG0 |= DFWP;
+    cur_time_stamp++;
+}
+
+int rollback(){
+    cur_checkpoint ^= 1; //roll back to previous checkpoint
+    char *ptr = (char *)FRAM_CHECKPOINT_REGION;
+    ptr += cur_checkpoint;
+    unsigned char checkpoint_data = *ptr;
+    int start_time_stamp = checkpoint_data >> 6;
+    int end_time_stamp = checkpoint_data & 0b11;
+    if(start_time_stamp == end_time_stamp){
+        valid_data_start = (checkpoint_data >> 4) & 0b11;
+        valid_data_end = (checkpoint_data >> 2) & 0b11;
+        return 1;
+    }
+    else{
+        return -1; // roll back fail
+    }
+}
+
+unsigned long long encode(float num){
+    unsigned long long bin_num = (*(unsigned long*)&num);
+    unsigned long long result = 0;
+    unsigned long long ecc = 0;
+    unsigned int sum = 0;
+    bin_num = bin_num << 3;
+    result += bin_num & 0b1000;
+    bin_num = bin_num << 1;
+    result += bin_num & 0b11100000;
+    bin_num = bin_num << 1;
+    result += bin_num & 0b1111111000000000;
+    bin_num = bin_num << 1;
+    result += bin_num & 0b11111111111111100000000000000000;
+    bin_num = bin_num << 1;
+    result += bin_num & 0b1111111000000000000000000000000000000000;
+    int i = 0;
+    unsigned long long mask = 1;
+    for(i = 0; i < 40; i++){
+        sum ^= (result & mask) >> i;
+        if(result & mask){
+            ecc ^= i;
+        }
+        mask = mask << 1;
+    }
+    result += (ecc & 1) << 1;
+    ecc = ecc >> 1;
+    result += (ecc & 1) << 2;
+    ecc = ecc >> 1;
+    result += (ecc & 1) << 4;
+    ecc = ecc >> 1;
+    result += (ecc & 1) << 8;
+    ecc = ecc >> 1;
+    result += (ecc & 1) << 16;
+    ecc = ecc >> 1;
+    result += (ecc & 1) << 32;
+    result += sum;
+    return result;
+}
+
+float decode(unsigned long long num){
+    unsigned int i = 0;
+    unsigned int pos = 0;
+    const int mask = 0b1;
+    int error_detected = 0;
+    unsigned long result = 0;
+    unsigned long long num_copy = num;
+    for(i = 0; i < 40; i++){
+        error_detected ^= num_copy & mask;
+        if(num_copy & mask){
+            pos ^= i;
+        }
+        num_copy = num_copy >> 1;
+    }
+    if(error_detected){
+        num ^= mask << pos;
+    }
+    else if(pos){ //double error detected
+        return -1;
+    }
+    num = num >> 3;
+    result += num & 0b1;
+    num = num >> 1;
+    result += num & 0b1110;
+    num = num >> 1;
+    result += num & 0b11111110000;
+    num = num >> 1;
+    result += num & 0b11111111111111100000000000;
+    num = num >> 1;
+    result += num & 0b11111100000000000000000000000000;
+    return *(float*)&result;
+}
+
+/*#pragma vector = RTC_VECTOR
+__interrupt void RTC_ISR(void){
+    switch(__even_in_range(RTCIV, RTCIV_RTCIF))
+    {
+        case RTCIV_NONE :
+            break;
+
+        case RTCIV_RTCIF:
+
+            //print_temp(read_avg());
+            break;
+        default:
+            break;
+    }
+}*/
+
+
+// ADC interrupt service routine
+#pragma vector=ADC_VECTOR
+__interrupt void ADC_ISR(void)
+{
+    //  __delay_cycles(400);
+    temp = ADCMEM0;
+
+    // Temperature in Celsius
+    IntDegC = (temp-CALADC_15V_30C)*(85-30)/(CALADC_15V_85C-CALADC_15V_30C)+30;
+
+    // Temperature in Fahrenheit
+    IntDegF = 9*IntDegC/5+32;
+    write(IntDegC);
+    print_temp(read_avg());
+}
+
+// Timer A0 interrupt service routine
+
+#pragma vector=TIMER0_A0_VECTOR
+__interrupt void Timer_A (void)
+{
+    ADCCTL0 |= ADCENC | ADCSC;                                    // Sampling and conversion start
+}
+
+void Init_LCD(){
+    SYSCFG2 |= LCDPCTL;                                        // R13/R23/R33/LCDCAP0/LCDCAP1 pins selected
+    LCDPCTL0 = 0xFFFF;
+    LCDPCTL1 = 0x07FF;
+    LCDPCTL2 = 0x00F0;                                         // L0~L26 & L36~L39 pins selected
+
+    LCDCTL0 = LCDSSEL_0 | LCDDIV_7;                            // flcd ref freq is xtclk
+
+    // LCD Operation - Mode 3, internal 3.08v, charge pump 256Hz
+    LCDVCTL = LCDCPEN | LCDREFEN | VLCD_6 | (LCDCPFSEL0 | LCDCPFSEL1 | LCDCPFSEL2 | LCDCPFSEL3);
+
+    LCDMEMCTL |= LCDCLRM;                                      // Clear LCD memory
+
+    LCDCSSEL0 = 0x000F;                                        // Configure COMs and SEGs
+    LCDCSSEL1 = 0x0000;                                        // L0, L1, L2, L3: COM pins
+    LCDCSSEL2 = 0x0000;
+
+    LCDM0 = 0x21;                                              // L0 = COM0, L1 = COM1
+    LCDM1 = 0x84;
+    LCDCTL0 |= LCD4MUX | LCDON;
+}
+
+void Init_GPIO()
+{
+    // Configure all GPIO to Output Low
+    P1OUT = 0x00;P2OUT = 0x00;P3OUT = 0x00;P4OUT = 0x00;
+    P5OUT = 0x00;P6OUT = 0x00;P7OUT = 0x00;P8OUT = 0x00;
+
+    P1DIR = 0xFF;P2DIR = 0xFF;P3DIR = 0xFF;P4DIR = 0xFF;
+    P5DIR = 0xFF;P6DIR = 0xFF;P7DIR = 0xFF;P8DIR = 0xFF;
+}
+
+void setTimer()
+{
+    TA0CCTL0 |= CCIE;                                             // TACCR0 interrupt enabled
+    TA0CCR0 = 65535;
+    TA0CTL = TASSEL__ACLK | MC__UP;                               // ACLK, UP mode
+
+    // Configure ADC - Pulse sample mode; ADCSC trigger
+    ADCCTL0 |= ADCSHT_8 | ADCON;                                  // ADC ON,temperature sample period>30us
+    ADCCTL1 |= ADCSHP;                                            // s/w trig, single ch/conv, MODOSC
+    ADCCTL2 |= ADCRES;                                            // 10-bit conversion results
+    ADCMCTL0 |= ADCSREF_1 | ADCINCH_12;                           // ADC input ch A12 => temp sense
+    ADCIE |=ADCIE0;                                               // Enable the Interrupt request for a completed ADC_B conversion
+
+    // Configure reference
+    PMMCTL0_H = PMMPW_H;                                          // Unlock the PMM registers
+    PMMCTL2 |= INTREFEN | TSENSOREN;                              // Enable internal reference and temperature sensor
+
+    P4SEL0 |= BIT1 | BIT2;                              // P4.2~P4.1: crystal pins
+    do
+    {
+        CSCTL7 &= ~(XT1OFFG | DCOFFG);                  // Clear XT1 and DCO fault flag
+        SFRIFG1 &= ~OFIFG;
+    }while (SFRIFG1 & OFIFG);                           // Test oscillator fault flag
+     CSCTL6 = (CSCTL6 & ~(XT1DRIVE_3)) | XT1DRIVE_2;     // Higher drive strength and current consumption for XT1 oscillator
+     RTCCTL |= RTCSS__XT1CLK | RTCIE;                    // Initialize RTC to use XT1 and enable RTC interrupt
+     RTCMOD = 32768 / 10;                                     // Set RTC modulo to 32768 to trigger interrupt each second
+}
